@@ -1,0 +1,15 @@
+ArduinoGraphics
+ArduinoJson
+CC1101
+DallasTemperature
+ESP32S3_SUPERMINI_PINOUT
+FastLED
+FreeRTOS
+IskakINO_LiquidCrystal_I2C
+Libraries.md
+LiquidCrystal_I2C
+OneWire
+RFID
+RadioLib
+SmartRC-CC1101-Driver-Lib
+SuplaDevice
