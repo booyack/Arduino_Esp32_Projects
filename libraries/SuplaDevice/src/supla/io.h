@@ -1,0 +1,185 @@
+/*
+ Copyright (C) AC SOFTWARE SP. Z O.O.
+
+ This program is free software; you can redistribute it and/or
+ modify it under the terms of the GNU General Public License
+ as published by the Free Software Foundation; either version 2
+ of the License, or (at your option) any later version.
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+ You should have received a copy of the GNU General Public License
+ along with this program; if not, write to the Free Software
+ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+*/
+
+#ifndef SRC_SUPLA_IO_H_
+#define SRC_SUPLA_IO_H_
+
+#include <stdint.h>
+
+#include "definitions.h"
+
+namespace Supla {
+// This class can be used to override digitalRead and digitalWrite methods.
+// If you want to add custom behavior i.e. during read/write from some
+// digital pin, you can inherit from Supla::Io::Base class, implement your
+// own customDigitalRead and customDigitalWrite methods and create instance
+// of this class. It will automatically register and SuplaDevice will use it.
+//
+// Example use: implement some additional logic, when relay state is
+// changed.
+namespace Io {
+
+class Base {
+ public:
+  static Base *ioInstance;
+
+  explicit Base(bool useAsSingleton = true);
+  virtual ~Base();
+  virtual bool isReady() const;
+
+  virtual void customPinMode(int channelNumber, uint8_t pin, uint8_t mode);
+  virtual int customDigitalRead(int channelNumber, uint8_t pin);
+  virtual unsigned int customPulseIn(int channelNumber,
+                                     uint8_t pin,
+                                     uint8_t value,
+                                     uint64_t timeoutMicro);
+  virtual void customDigitalWrite(int channelNumber, uint8_t pin, uint8_t val);
+  virtual void customAnalogWrite(int channelNumber, uint8_t pin, int val);
+  virtual void customSetPwmResolutionBits(uint8_t resolutionBits);
+  virtual void customConfigureAnalogOutput(int channelNumber,
+                                           uint8_t pin,
+                                           bool outputInvert = false);
+  virtual void customSetPwmFrequency(uint16_t pwmFrequency);
+  virtual uint8_t customAnalogWriteResolutionBits() const;
+  virtual uint32_t customAnalogWriteMaxValue() const;
+  virtual int customAnalogRead(int channelNumber, uint8_t pin);
+  virtual void customAttachInterrupt(uint8_t pin, void (*func)(void), int mode);
+  virtual void customDetachInterrupt(uint8_t pin);
+  virtual uint8_t customPinToInterrupt(uint8_t pin);
+
+ private:
+  bool useAsSingleton = true;
+};
+
+struct IoPin {
+  enum Flag : uint8_t {
+    IsSet = 1 << 0,
+    PullUp = 1 << 1,
+    ActiveHigh = 1 << 2,
+  };
+
+  uint8_t pin = 0;
+  uint8_t flags = ActiveHigh;
+  uint8_t mode = 0;
+  mutable uint8_t analogWriteResolutionBitsValue = 0;
+  Base *io = nullptr;
+
+  IoPin() = default;
+  explicit IoPin(int pin, Base *io = nullptr) : io(io) { setPin(pin); }
+
+  bool isSet() const { return (flags & IsSet) != 0; }
+  void setIsSet(bool value) {
+    if (value) {
+      flags |= IsSet;
+    } else {
+      flags &= ~IsSet;
+    }
+  }
+
+  int getPin() const { return isSet() ? static_cast<int>(pin) : -1; }
+  void setPin(int value) {
+    if (value < 0) {
+      pin = 0;
+      setIsSet(false);
+    } else {
+      pin = static_cast<uint8_t>(value);
+      setIsSet(true);
+    }
+  }
+
+  bool isPullUp() const { return (flags & PullUp) != 0; }
+  void setPullUp(bool value) {
+    if (value) {
+      flags |= PullUp;
+    } else {
+      flags &= ~PullUp;
+    }
+  }
+
+  bool isActiveHigh() const { return (flags & ActiveHigh) != 0; }
+  void setActiveHigh(bool value) {
+    if (value) {
+      flags |= ActiveHigh;
+    } else {
+      flags &= ~ActiveHigh;
+    }
+  }
+
+  void setMode(uint8_t value) { mode = value; }
+  uint8_t getMode() const { return mode; }
+
+  void setAnalogOutputResolutionBits(uint8_t resolutionBits);
+  void setAnalogOutputFrequency(uint32_t frequencyHz);
+  void configureAnalogOutput(int channelNumber = -1) const;
+  void pinMode(int channelNumber = -1) const;
+  int digitalRead(int channelNumber = -1) const;
+  void digitalWrite(uint8_t value, int channelNumber = -1) const;
+  void analogWrite(int value, int channelNumber = -1) const;
+  uint8_t analogWriteResolutionBits() const;
+  uint32_t analogWriteMaxValue() const;
+  void writeActive(int channelNumber = -1) const;
+  void writeInactive(int channelNumber = -1) const;
+  bool readActive(int channelNumber = -1) const;
+};
+
+void pinMode(uint8_t pin, uint8_t mode, Supla::Io::Base *io = Base::ioInstance);
+int digitalRead(uint8_t pin, Supla::Io::Base *io = Base::ioInstance);
+void digitalWrite(uint8_t pin,
+                  uint8_t val,
+                  Supla::Io::Base *io = Base::ioInstance);
+void analogWrite(uint8_t pin,
+                 int value,
+                 Supla::Io::Base *io = Base::ioInstance);
+int analogRead(uint8_t pin, Supla::Io::Base *io = Base::ioInstance);
+unsigned int pulseIn(uint8_t pin,
+                     uint8_t value,
+                     uint64_t timeoutMicro,
+                     Supla::Io::Base *io = Base::ioInstance);
+
+void pinMode(int channelNumber,
+             uint8_t pin,
+             uint8_t mode,
+             Supla::Io::Base *io = Base::ioInstance);
+int digitalRead(int channelNumber,
+                uint8_t pin,
+                Supla::Io::Base *io = Base::ioInstance);
+void digitalWrite(int channelNumber,
+                  uint8_t pin,
+                  uint8_t val,
+                  Supla::Io::Base *io = Base::ioInstance);
+void analogWrite(int channelNumber,
+                 uint8_t pin,
+                 int value,
+                 Supla::Io::Base *io = Base::ioInstance);
+int analogRead(int channelNumber,
+               uint8_t pin,
+               Supla::Io::Base *io = Base::ioInstance);
+unsigned int pulseIn(int channelNumber,
+                     uint8_t pin,
+                     uint8_t value,
+                     uint64_t timeoutMicro,
+                     Supla::Io::Base *io = Base::ioInstance);
+
+void attachInterrupt(uint8_t pin,
+                     void (*func)(void),
+                     int mode,
+                     Io::Base *io = Base::ioInstance);
+void detachInterrupt(uint8_t pin, Io::Base *io = Base::ioInstance);
+uint8_t pinToInterrupt(uint8_t pin, Io::Base *io = Base::ioInstance);
+}  // namespace Io
+};  // namespace Supla
+
+#endif  // SRC_SUPLA_IO_H_

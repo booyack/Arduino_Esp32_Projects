@@ -1,0 +1,64 @@
+/*
+ Copyright (C) AC SOFTWARE SP. Z O.O.
+
+ This program is free software; you can redistribute it and/or
+ modify it under the terms of the GNU General Public License
+ as published by the Free Software Foundation; either version 2
+ of the License, or (at your option) any later version.
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+ You should have received a copy of the GNU General Public License
+ along with this program; if not, write to the Free Software
+ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+*/
+
+#include "binary.h"
+
+#include <supla/time.h>
+
+Supla::Sensor::Binary::Binary(Supla::Io::IoPin inputPin)
+    : inputPin(inputPin) {
+  this->inputPin.setMode(INPUT);
+}
+
+Supla::Sensor::Binary::Binary(Supla::Io::Base *io,
+                              int pin,
+                              bool pullUp,
+                              bool invertLogic)
+    : Binary(Supla::Io::IoPin(pin, io)) {
+  inputPin.setPullUp(pullUp);
+  inputPin.setActiveHigh(!invertLogic);
+}
+
+Supla::Sensor::Binary::Binary(int pin, bool pullUp, bool invertLogic)
+    : Binary(Supla::Io::IoPin(pin)) {
+  inputPin.setPullUp(pullUp);
+  inputPin.setActiveHigh(!invertLogic);
+}
+
+bool Supla::Sensor::Binary::getValue() {
+  auto value = inputPin.readActive(channel.getChannelNumber());
+
+  if (config.filteringTimeMs > 0) {
+    if (value != newStateCandidateValue) {
+      newStateCandidateValue = value;
+      lastStateChangeMs = millis();
+      return prevValue;
+    } else if (millis() - lastStateChangeMs > config.filteringTimeMs) {
+      value = newStateCandidateValue;
+      prevValue = value;
+      return value;
+    } else {
+      return prevValue;
+    }
+  }
+
+  return value;
+}
+
+void Supla::Sensor::Binary::onInit() {
+  inputPin.pinMode(channel.getChannelNumber());
+  channel.setNewValue(getValue());
+}
