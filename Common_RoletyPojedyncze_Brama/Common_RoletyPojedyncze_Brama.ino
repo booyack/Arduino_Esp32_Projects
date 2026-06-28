@@ -47,7 +47,7 @@ struct RollerPins {
   bool lastDown;
 };
 
-// Obsługa tylko 10 rolet Aluprof (brama Somfy została wydzielona do osobnej klasy)
+// Obsługa 10 rolet Aluprof
 RollerPins rolety[10] = {
   {1, 2, "Wszystkie rolety", false, false},
   {9, 10, "Taras", false, false},
@@ -60,6 +60,12 @@ RollerPins rolety[10] = {
   {42, 45, "Polcia", false, false},
   {46, 47, "Sypialnia", false, false}
 };
+
+// Zmienne do śledzenia stanu wirtualnych pinów bramy Somfy
+const int BRAMA_PIN_UP = 17;
+const int BRAMA_PIN_DOWN = 18;
+bool lastBramaUp = false;
+bool lastBramaDown = false;
 
 bool bootReady = false;
 
@@ -196,38 +202,6 @@ uint16_t getAndIncrementRollingCode() {
     return globalRollingCode;
 }
 
-// KLASA KOMPATYBILNA ZE STARSZYMI WERSJAMI BIBLIOTEKI SUPLA
-class SuplaSomfyGarageDoor : public Supla::Control::RollerShutter {
- public:
-  // Podajemy dwa wolne piny GPIO (np. 17 i 18), których fizycznie do niczego nie używasz.
-  // Dzięki temu starsza biblioteka prawidłowo aktywuje kanał w pętli chmury.
-  SuplaSomfyGarageDoor() : RollerShutter(17, 18) {}
-
-  void handleAction(int event, int action) override {
-    // Wywołujemy logikę bazową, aby Supla prawidłowo przetwarzała stan w chmurze
-    Supla::Control::RollerShutter::handleAction(event, action);
-
-    uint16_t rCode;
-
-    // Przechwytujemy akcje przy użyciu stałych wspieranych przez Twoją bibliotekę
-    if (action == ACTION_OPEN) {
-      rCode = getAndIncrementRollingCode();
-      Serial.printf("[SUPLA SOMFY] Akcja -> GÓRA | Code: %d\n", rCode);
-      transmitSomfy(CMD_UP, rCode);
-    } 
-    else if (action == ACTION_CLOSE) {
-      rCode = getAndIncrementRollingCode();
-      Serial.printf("[SUPLA SOMFY] Akcja -> DÓŁ | Code: %d\n", rCode);
-      transmitSomfy(CMD_DOWN, rCode);
-    } 
-    else if (action == ACTION_STOP) {
-      rCode = getAndIncrementRollingCode();
-      Serial.printf("[SUPLA SOMFY] Akcja -> STOP | Code: %d\n", rCode);
-      transmitSomfy(CMD_MY, rCode);
-    }
-  }
-};
-
 void setup() {
   Serial.begin(115200);
 
@@ -256,14 +230,14 @@ void setup() {
   
   Serial.printf("START. Licznik w RAM: %d\n", globalRollingCode);
 
-  // Rejestracja Rolet (Aluprof) - indeksy 0-9
+  // Rejestracja 10 tradycyjnych rolet (Aluprof)
   for (int i = 0; i < 10; i++) {
     auto shutter = new Supla::Control::RollerShutter(rolety[i].pinUp, rolety[i].pinDown);
     shutter->setInitialCaption(rolety[i].name); 
   }
 
-  // Rejestracja dedykowanej wirtualnej rolety dla Somfy na wolnych pinach 17/18
-  auto somfyGarage = new SuplaSomfyGarageDoor();
+  // Rejestracja kanału bramy Somfy jako standardowy obiekt na pinach 17 i 18
+  auto somfyGarage = new Supla::Control::RollerShutter(BRAMA_PIN_UP, BRAMA_PIN_DOWN);
   somfyGarage->setInitialCaption("Brama Garaz (Somfy)");
 
   SuplaDevice.setName("Rolety i Brama");
@@ -271,19 +245,50 @@ void setup() {
 }
 
 void loop() {
-  SuplaDevice.iterate();
+  SuplaDevice.iterate(); // Chmura w tle ustawia stany pinów 17 i 18
 
   if (!bootReady) {
     for (int i = 0; i < 10; i++) {
       rolety[i].lastUp = digitalRead(rolety[i].pinUp);
       rolety[i].lastDown = digitalRead(rolety[i].pinDown);
     }
+    // Synchronizacja wirtualnych pinów bramy na starcie
+    lastBramaUp = digitalRead(BRAMA_PIN_UP);
+    lastBramaDown = digitalRead(BRAMA_PIN_DOWN);
+
     bootReady = true;
     Serial.println("-> Piny zsynchronizowane.");
     return;
   }
 
-  // Obsługa 10 tradycyjnych rolet Aluprof
+  // 1. OBSŁUGA BRAMY GARAŻOWEJ SOMFY Z SUPLA CLOUD (Przechwytywanie zmian na pinach 17 i 18)
+  bool currentBramaUp = digitalRead(BRAMA_PIN_UP);
+  bool currentBramaDown = digitalRead(BRAMA_PIN_DOWN);
+
+  if (currentBramaUp && !lastBramaUp) {
+      uint16_t rCode = getAndIncrementRollingCode();
+      Serial.printf("[SUPLA BRAMA] Zdarzenie -> GÓRA | Code: %d\n", rCode);
+      transmitSomfy(CMD_UP, rCode);
+  }
+  else if (currentBramaDown && !lastBramaDown) {
+      uint16_t rCode = getAndIncrementRollingCode();
+      Serial.printf("[SUPLA BRAMA] Zdarzenie -> DÓŁ | Code: %d\n", rCode);
+      transmitSomfy(CMD_DOWN, rCode);
+  }
+  else if ((!currentBramaUp && lastBramaUp) || (!currentBramaDown && lastBramaDown)) {
+      // Wyślij STOP (CMD_MY) tylko wtedy, gdy OBA wirtualne piny spadły do zera.
+      // Zapobiega to wysłaniu STOP przy bezpośredniej zmianie kierunku GÓRA <-> DÓŁ.
+      if (!currentBramaUp && !currentBramaDown) {
+          uint16_t rCode = getAndIncrementRollingCode();
+          Serial.printf("[SUPLA BRAMA] Zdarzenie -> STOP | Code: %d\n", rCode);
+          transmitSomfy(CMD_MY, rCode);
+      }
+  }
+  lastBramaUp = currentBramaUp;
+  lastBramaDown = currentBramaDown;
+
+
+  // 2. OBSŁUGA 10 TRADYCYJNYCH ROLET ALUPROF
   for (int i = 0; i < 10; i++) {
     bool currentUp = digitalRead(rolety[i].pinUp);
     bool currentDown = digitalRead(rolety[i].pinDown);
@@ -305,6 +310,7 @@ void loop() {
     rolety[i].lastDown = currentDown;
   }
 
+  // 3. OBSŁUGA PORTU SZEREGOWEGO
   if (Serial.available() > 0) {
     char input = Serial.read();
     if (input != '\n' && input != '\r') {
