@@ -3,11 +3,13 @@
 #include <Preferences.h>
 
 // Definicje pinów (Po zweryfikowanej korekcie sprzętowej)
-const int PIN_GDO0 = 2;  // Czysty pin danych (GDO0)
+const int PIN_GDO0 = 3;  // Czysty pin danych (GDO0)
 const int PIN_CSN  = 7;
 const int PIN_SCK  = 4;
 const int PIN_MOSI = 6;
 const int PIN_MISO = 5;
+
+const int LED_PIN = 8;
 
 // Unikalny ID Twojego wirtualnego pilota
 const uint32_t REMOTE_ID = 0xABC123; 
@@ -129,6 +131,9 @@ uint16_t getAndIncrementRollingCode() {
 void setup() {
     Serial.begin(115200);
     while(!Serial); 
+
+    pinMode(LED_PIN, OUTPUT);
+    digitalWrite(LED_PIN, HIGH); // Jeśli nie zgaśnie, zmień LOW na HIGH
 
     // Inicjalizacja sprzętu SPI
     ELECHOUSE_cc1101.setSpiPin(PIN_SCK, PIN_MISO, PIN_MOSI, PIN_CSN);

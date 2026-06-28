@@ -4,18 +4,22 @@
 #include <supla/control/roller_shutter.h>
 #include "ELECHOUSE_CC1101_SRC_DRV.h"
 
-constexpr uint8_t CC1101_SCK = 4;
-#define CC1101_MISO  5
-#define CC1101_MOSI  6
-#define CC1101_CSN   7
-#define CC1101_GDO0  3
+// Fizyczne piny CC1101 na Twoim SuperMini
+#define CC1101_SCK    4
+#define CC1101_MISO   5
+#define CC1101_MOSI   6
+#define CC1101_CSN    7
+#define CC1101_GDO0   3
 
+// Dane sieci Wi-Fi i Supla Cloud
 const char* SSID_WIFI = "WypadZBaru";
 const char* PASS_WIFI = "Multiwitamina33";
+
 const char* SUPLA_SERVER = "svr160.supla.org";
 const char* SUPLA_EMAIL  = "michalbujak1987@gmail.com";
 
-const char GUID[16]    = {0x2D, 0xA1, 0xC5, 0x11, 0x06, 0x3D, 0x06, 0x44, 0xEE, 0x55, 0xFF, 0x66, 0x11, 0x22, 0x33, 0x44};
+// UNIKALNE KLUCZE (Zmieniony ostatni bajt na 0x47, żeby wymusić czystą rejestrację nowych nazw)
+const char GUID[16]    = {0x2D, 0xA1, 0xC5, 0x11, 0x06, 0x3D, 0x06, 0x44, 0xEE, 0x55, 0xFF, 0x66, 0x11, 0x22, 0x33, 0x47};
 const char AUTHKEY[16] = {0x44, 0x33, 0x22, 0x11, 0x66, 0xFF, 0x55, 0xEE, 0x44, 0xDD, 0x33, 0xCC, 0x22, 0xBB, 0x11, 0xAA};
 
 const uint8_t CMD_GORA = 0x11;
@@ -24,7 +28,28 @@ const uint8_t CMD_STOP = 0x55;
 
 Supla::ESPWifi wifi(SSID_WIFI, PASS_WIFI);
 
-// --- Funkcje radiowe Aluprof ---
+struct RollerPins {
+  uint8_t pinUp;
+  uint8_t pinDown;
+  const char* name;
+  bool lastUp;
+  bool lastDown;
+};
+
+// Nowa, w 100% bezpieczna pula pinów (omijamy CC1101, LED[8] oraz USB[19,20])
+RollerPins rolety[10] = {
+  {1, 2, "Wszystkie rolety", false, false},
+  {9, 10, "Taras", false, false},
+  {11, 12, "Kuchnia Zachod", false, false},
+  {13, 14, "Kuchnia Polnoc", false, false},
+  {21, 35, "Garaz", false, false},
+  {36, 37, "Kotlownia", false, false},
+  {38, 39, "Madzia", false, false},
+  {40, 41, "Dodek", false, false},
+  {42, 45, "Polcia", false, false},
+  {46, 47, "Sypialnia", false, false}
+};
+
 void nadajBit(bool bit) {
   if (bit) {
     digitalWrite(CC1101_GDO0, HIGH); delayMicroseconds(720);
@@ -54,36 +79,6 @@ void nadajPaczkeAluprof(uint8_t kanal, uint8_t komenda) {
   ELECHOUSE_cc1101.SetRx();
 }
 
-// --- Dedykowana klasa wirtualnej rolety dla Supli ---
-class AluprofRollerShutter : public Supla::Control::RollerShutter {
-  public:
-    AluprofRollerShutter(uint8_t aluprofChannel) 
-      : Supla::Control::RollerShutter(-1, -1), channel(aluprofChannel) {}
-
-    void handleAction(int event, int action) override {
-      // Wywołujemy oryginalną logikę z biblioteki
-      Supla::Control::RollerShutter::handleAction(event, action);
-
-      // Mapowanie surowych ID akcji (zamiast niedostępnych Supla::OPEN / Supla::START_OPENING)
-      // W bibliotece Supla: 1 = GÓRA/OTWÓRZ, 2 = DÓŁ/ZAMKNIJ, 3 = STOP
-      if (action == 1) {
-        Serial.printf("Kanal %d -> Ruch w GORE\n", channel);
-        nadajPaczkeAluprof(channel, CMD_GORA);
-      } 
-      else if (action == 2) {
-        Serial.printf("Kanal %d -> Ruch w DOL\n", channel);
-        nadajPaczkeAluprof(channel, CMD_DOL);
-      } 
-      else if (action == 3) {
-        Serial.printf("Kanal %d -> STOP\n", channel);
-        nadajPaczkeAluprof(channel, CMD_STOP);
-      }
-    }
-
-  private:
-    uint8_t channel;
-};
-
 void setup() {
   Serial.begin(115200);
 
@@ -93,8 +88,6 @@ void setup() {
   ELECHOUSE_cc1101.Init();
   ELECHOUSE_cc1101.setModulation(2);
   ELECHOUSE_cc1101.setMHZ(433.92);
-
-  // preambula
   ELECHOUSE_cc1101.SpiWriteReg(0x02, 0x0D); 
   ELECHOUSE_cc1101.SpiWriteReg(0x08, 0x30); 
   ELECHOUSE_cc1101.SpiWriteReg(0x1B, 0x03); 
@@ -102,22 +95,37 @@ void setup() {
   ELECHOUSE_cc1101.SetRx();
   pinMode(CC1101_GDO0, INPUT);
 
-  // --- REJESTRACJA KANAŁÓW W SUPLI ---
-  auto r0 = new AluprofRollerShutter(0); // Kanał 0 (Wszystkie rolety)
-  auto r1 = new AluprofRollerShutter(1); // Kanał 1 (Taras)
-  auto r2 = new AluprofRollerShutter(2); // Kanał 2 (KuchniaZachod)
-  auto r3 = new AluprofRollerShutter(3); // Kanał 3 (KuchniaPolnoc)
-  auto r4 = new AluprofRollerShutter(4); // Kanał 4 (Garaz)
-  auto r5 = new AluprofRollerShutter(5); // Kanał 5 (Kotlownia)
-  auto r6 = new AluprofRollerShutter(6); // Kanał 6 (Madzia)
-  auto r7 = new AluprofRollerShutter(7); // Kanał 7 (Dodek)
-  auto r8 = new AluprofRollerShutter(8); // Kanał 8 (Polcia)
-  auto r9 = new AluprofRollerShutter(9); // Kanał 9 (Sypialnia)
-  
+  // Rejestracja rolet
+  for (int i = 0; i < 10; i++) {
+    auto shutter = new Supla::Control::RollerShutter(rolety[i].pinUp, rolety[i].pinDown);
+    shutter->setInitialCaption(rolety[i].name); 
+  }
+
   SuplaDevice.setName("Rolety Dom");
   SuplaDevice.begin(GUID, SUPLA_SERVER, SUPLA_EMAIL, AUTHKEY);
 }
 
 void loop() {
   SuplaDevice.iterate();
+
+  for (int i = 0; i < 10; i++) {
+    bool currentUp = digitalRead(rolety[i].pinUp);
+    bool currentDown = digitalRead(rolety[i].pinDown);
+
+    if (currentUp && !rolety[i].lastUp) {
+      Serial.printf("Supla -> %s w GORE\n", rolety[i].name);
+      nadajPaczkeAluprof(i, CMD_GORA);
+    }
+    else if (currentDown && !rolety[i].lastDown) {
+      Serial.printf("Supla -> %s w DOL\n", rolety[i].name);
+      nadajPaczkeAluprof(i, CMD_DOL);
+    }
+    else if ((!currentUp && rolety[i].lastUp) || (!currentDown && rolety[i].lastDown)) {
+      Serial.printf("Supla -> %s STOP\n", rolety[i].name);
+      nadajPaczkeAluprof(i, CMD_STOP);
+    }
+
+    rolety[i].lastUp = currentUp;
+    rolety[i].lastDown = currentDown;
+  }
 }
